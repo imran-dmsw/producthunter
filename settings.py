@@ -54,3 +54,30 @@ def save_config(cfg: dict) -> None:
 def db_path() -> Path:
     p = Path(os.getenv("PRODUCT_HUNTER_DB", "data/product_hunter.db"))
     return p if p.is_absolute() else ROOT / p
+
+
+# ---------------------------------------------------------------------
+# Clés d'API (fichier .env, jamais dans config.yaml)
+# ---------------------------------------------------------------------
+API_KEYS = {
+    "ANTHROPIC_API_KEY": "Anthropic (Claude) — génération IA",
+    "CJ_API_KEY": "CJ Dropshipping — clé API (format CJUserNum@api@…)",
+    "ALIEXPRESS_APP_KEY": "AliExpress Affiliés — App Key",
+    "ALIEXPRESS_APP_SECRET": "AliExpress Affiliés — App Secret",
+    "ALIEXPRESS_TRACKING_ID": "AliExpress Affiliés — Tracking ID (optionnel)",
+}
+
+
+def masked_key(name: str) -> str:
+    value = os.getenv(name, "")
+    return f"••••{value[-4:]}" if len(value) > 8 else ("défini" if value else "")
+
+
+def set_api_key(name: str, value: str) -> None:
+    """Écrit la clé dans .env (créé si besoin) et l'active immédiatement."""
+    from dotenv import set_key
+
+    env_path = ROOT / ".env"
+    env_path.touch(exist_ok=True)
+    set_key(str(env_path), name, value.strip(), quote_mode="never")
+    os.environ[name] = value.strip()

@@ -117,7 +117,10 @@ def collect(cfg: dict) -> CollectResult:
             result.info.append(f"{domain} : devise {currency} inconnue, prix laissés tels quels")
 
         count = 0
+        only_best = scfg.get("best_sellers_only", False) and ranks
         for p in products:
+            if only_best and p.get("handle") not in ranks:
+                continue
             item = _to_item(p, domain, base, fx, ranks)
             if item:
                 result.items.append(item)

@@ -5,3 +5,4 @@ __pycache__/
 data/*.db
 data/ads_csv/*.csv
 .DS_Store
+data/supplier_csv/*.csv

@@ -163,7 +163,7 @@ _AD_FIELDS = ("advertisers_count", "ad_first_seen", "ad_last_seen", "supplier_co
 
 def import_into_db(items: list[dict], cfg: dict) -> dict:
     """Rattache les données pubs aux produits existants similaires, crée les autres."""
-    from db import Product, get_session, upsert_product
+    from db import SUPPLIER_FOUND, Product, get_session, upsert_offer, upsert_product
 
     threshold = cfg.get("scoring", {}).get("title_similarity", 0.72)
     matched = created = 0
@@ -193,7 +193,22 @@ def import_into_db(items: list[dict], cfg: dict) -> dict:
             else:
                 existing.append(upsert_product(s, it))
                 created += 1
-    return {"matched": matched, "created": created}
+        s.flush()
+        # Prix/lien fournisseur fournis par l'outil de spy -> offre partielle (port et délai
+        # inconnus : elle restera exclue tant qu'ils ne sont pas complétés dans la fiche).
+        offers = 0
+        for p in s.scalars(select(Product).where(Product.supplier_url.is_not(None))):
+            if any(o.url == p.supplier_url for o in p.offers):
+                continue
+            upsert_offer(s, p.id, {
+                "supplier": "aliexpress" if "aliexpress" in p.supplier_url else "csv",
+                "supplier_product_id": hashlib.md5(p.supplier_url.encode()).hexdigest()[:16],
+                "title": p.title, "url": p.supplier_url, "price_eur": p.supplier_cost_eur,
+                "raw": {"origine": "import CSV de pubs (prix d'achat indicatif, port/délai à compléter)"},
+            })
+            p.supplier_status = SUPPLIER_FOUND
+            offers += 1
+    return {"matched": matched, "created": created, "offres fournisseur": offers}
 
 
 def collect(cfg: dict, uploaded: list[tuple[str, bytes]] | None = None) -> CollectResult:

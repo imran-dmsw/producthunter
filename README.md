@@ -1,129 +1,141 @@
-# 🎯 product-hunter
+# product-hunter
 
-Outil de détection de produits **dropshipping niche pour Shopify** (marché France / Europe), avec une interface Streamlit.
+Outil de sourcing de produits **dropshipping niche pour Shopify (marché France)**. Il détecte la demande, trouve le **même produit chez un fournisseur** (CJ Dropshipping, AliExpress), calcule la **marge réelle** par commande, élimine ce qui ne passe pas vos critères, et prépare des **fiches Shopify prêtes à importer**.
 
-Il collecte des produits depuis plusieurs sources, élimine ceux qui ne respectent pas vos critères (prix, marge, poids, catégories à risque), leur attribue un **score /100**, et fait analyser les meilleurs par **Claude** (angle marketing, public cible, accroches, risques, verdict go/no-go).
+> **Aucune donnée inventée.** Sans offre fournisseur réelle (prix d'achat, frais de port France, délai), un produit n'a ni marge ni prix conseillé : il est marqué *fournisseur introuvable* (ou *non cherché*) et reste hors du top.
 
-## Sources de données
+## Flux
 
-| Source | Fichier | Ce qu'elle apporte | Remarques |
-|---|---|---|---|
-| Boutiques Shopify concurrentes | `collectors/shopify_stores.py` | catalogue complet (`/products.json`), prix, poids, classement best-sellers | certaines boutiques bloquent `/products.json` ; le classement best-seller n'est lisible que sur les thèmes rendus côté serveur |
-| Amazon Movers & Shakers (FR) | `collectors/amazon_movers.py` | produits en forte progression | Amazon sert souvent une grille Movers & Shakers **vide aux robots** : l'outil bascule alors automatiquement sur les *Meilleures ventes* de la catégorie. En cas de captcha, la source est ignorée pour la collecte en cours |
-| Google Trends | `collectors/google_trends.py` | intérêt de recherche FR/Europe (moyenne + pente) | limité très vite par Google (HTTP 429) : délais, cache 24 h, nombre de mots-clés plafonné par collecte |
-| Import CSV publicités | `collectors/ads_import.py` | nombre d'annonceurs, ancienneté des pubs, liens vers les pubs, prix d'achat | exports **Minea**, **PPSPY** ou **Meta Ad Library** : les colonnes sont reconnues automatiquement (voir `examples/`) |
-
-Si une source échoue, la collecte continue avec les autres ; les erreurs sont visibles dans « Dernière collecte ».
+1. **Demande** : catalogue et best-sellers des boutiques Shopify concurrentes (`/products.json`), import CSV de pubs (Minea, PPSPY, Meta Ad Library), Google Trends FR.
+2. **Regroupement** : un même produit vendu par plusieurs boutiques (ou en plusieurs couleurs) forme un seul groupe ; la liste des concurrents et leurs prix sont conservés.
+3. **Matching fournisseur** : le titre (souvent en français) est traduit par Claude en requête anglaise, puis cherché chez **CJ Dropshipping** et **AliExpress**. Pour les meilleurs candidats : prix exact de la variante, **frais de port et délai réels vers la France**, stock, note, ventes, URL. Import CSV fournisseur en complément.
+4. **Marge réelle** : prix d'achat + livraison + frais de paiement (3 %) + coût pub estimé (25 % du prix) → profit net par commande et **prix de vente conseillé**.
+5. **Filtres éliminatoires** : livraison France ≤ 12 j, note vendeur ≥ 4,5, stock disponible, prix conseillé 30-80 €, profit net minimum, pas de marque / IP, pas de produit réglementé, fragile, à batterie, cosmétique ou ingéré.
+6. **Score /100** : marge, demande, saturation, fiabilité fournisseur, effet « wow ».
+7. **Génération IA** (Claude) : titre FR, description Shopify HTML, 3 accroches pub, public cible, tags, SEO, risques, verdict go / no-go.
+8. **Export Shopify** : CSV au format officiel d'import produits.
 
 ## Installation
 
-Prérequis : **Python 3.11+**.
+Prérequis : Python 3.11+.
 
 ```bash
 cd product-hunter
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # puis renseignez ANTHROPIC_API_KEY
+cp .env.example .env
 ```
 
-> Pas de Python 3.11 sur la machine ? Avec [uv](https://docs.astral.sh/uv/) : `uv venv --python 3.11 .venv && uv pip install -r requirements.txt`.
-
-La clé `ANTHROPIC_API_KEY` (console.anthropic.com) n'est nécessaire que pour l'analyse IA. Elle est lue depuis `.env` et ne doit jamais être écrite dans le code ni commitée (`.env` est dans `.gitignore`).
-
-## Lancement
+Lancement (depuis ce dossier, pour appliquer le thème) :
 
 ```bash
-streamlit run app.py
+.venv/bin/streamlit run app.py
 ```
 
-Puis ouvrez http://localhost:8501.
+## Clés d'API
 
-### Premier usage
+À saisir dans **Réglages → Clés API** (écrites dans `.env`, exclu de git) :
 
-1. **Réglages → Sources** : remplacez les boutiques d'exemple par les domaines de vos concurrents Shopify, choisissez les catégories Amazon et les zones Google Trends.
-2. **Découverte → Lancer la collecte** : cochez les sources, déposez éventuellement vos exports CSV de pubs (ou placez-les dans `data/ads_csv/`).
-3. Filtrez le tableau (prix, marge, catégorie, score min), puis **Analyser le top N avec Claude**.
-4. Ouvrez une **fiche produit** : score détaillé, courbe Trends, analyse IA, lien fournisseur, pubs. Corrigez le prix d'achat réel et le mot-clé Trends si besoin.
-5. **Ajouter à mes tests**, puis suivez budget, CA, ROAS et statut dans **Mes tests**.
-
-## Pages
-
-- **🔎 Découverte** : collecte, tableau trié par score, filtres, analyse IA du top, export CSV.
-- **📦 Fiche produit** : infos, score détaillé, graphique Google Trends, analyse IA (mise en cache), lien fournisseur (ou recherche AliExpress), liens vers les pubs + recherche Meta Ad Library / TikTok Creative Center.
-- **🧪 Mes tests** : budget dépensé, CA, ROAS calculé, statut (à tester / en test / validé / abandonné), notes, export CSV.
-- **⚙️ Réglages** : seuils, pondérations, sources, mots-clés exclus, édition YAML brute. Les commentaires de `config.yaml` sont conservés à l'enregistrement.
-
-## Filtres éliminatoires (`config.yaml` → `filters`)
-
-- Prix de vente entre 30 et 80 €.
-- Coefficient prix de vente / prix d'achat ≥ x3 (appliqué seulement si le prix d'achat est connu : CSV importé ou saisi dans la fiche).
-- Poids ≤ 1,5 kg (si le poids est connu, ex. Shopify).
-- Mots-clés exclus (titre, catégorie, tags, description), par motif : batterie, fragile, électronique complexe, ingéré / cosmétique / santé, réglementé, marques / propriété intellectuelle. La correspondance se fait sur **mots entiers** (« tea » n'exclut pas « steak »).
-
-Les produits exclus restent en base (bouton « Afficher les produits exclus » avec la raison).
-
-> ⚠️ Les mots-clés ne détectent pas tout : une marque absente de la liste (ex. le nom d'une boutique concurrente) n'est pas repérée. Vérifiez toujours la fiche et l'analyse IA avant de tester un produit.
-
-## Score /100 (`config.yaml` → `weights` et `scoring`)
-
-| Critère | Poids | Calcul (note 0 → 1) |
+| Clé | Rôle | Où l'obtenir |
 |---|---|---|
-| Marge estimée | 25 | coefficient x2 → 0, x5 → 1. Prix d'achat inconnu : estimé à 30 % du prix de vente (`estimated_cost_ratio`) |
-| Tendance Google Trends | 20 | ½ intérêt récent (60/100 = max) + ½ pente (atténuée si le volume est très faible) |
-| Nombre d'annonceurs | 15 | 1 entre 3 et 15 annonceurs ; en dessous = produit pas encore validé ; au-delà = décroît jusqu'à 0 à 50 |
-| Ancienneté des pubs | 15 | jours entre la 1re pub vue et la dernière ; 1 à partir de 30 jours |
-| Faible saturation | 15 | nombre de boutiques suivies vendant un titre similaire (ou nombre d'annonceurs) ; 0 à partir de 5 |
-| Effet wow / problème résolu | 10 | note 0-10 donnée par Claude |
+| `CJ_API_KEY` | recherche CJ, prix variante, frais de port, stock | compte CJ Dropshipping → API (format `CJUserNum@api@…`) |
+| `ALIEXPRESS_APP_KEY` / `ALIEXPRESS_APP_SECRET` | recherche AliExpress + frais de port FR | AliExpress Open Platform, programme affiliés |
+| `ALIEXPRESS_TRACKING_ID` | (optionnel) liens affiliés | idem |
+| `ANTHROPIC_API_KEY` | traduction des requêtes, fiches IA | console.anthropic.com |
 
-Une donnée manquante reçoit la note `missing_data_value` (0,3 par défaut) et apparaît en jaune dans la fiche. Le total est ramené sur 100 même si la somme des poids diffère.
+Sans clé fournisseur, l'outil fonctionne quand même avec l'**import CSV fournisseur** ou la **saisie manuelle d'une offre** dans la fiche produit.
 
-## Analyse IA (`analyzer.py`)
+## Sources fournisseur : ce que chaque API fournit réellement
 
-- Modèle `claude-opus-5-5` (modifiable dans Réglages), effort `medium`.
-- Réponse au format JSON imposé (*structured outputs*) : angle marketing, problème résolu, public cible, 3 accroches, risques (saturation, retours, légal), note wow, prix conseillé, verdict go / no-go / à creuser.
-- **Cache** : une analyse est réutilisée pendant `cache_days` (30 j) ; bouton « Ré-analyser » pour forcer.
-- **Fallback serveur** activé (`use_fallbacks: true`) : si un filtre de sécurité décline la requête, l'API la rejoue automatiquement sur un modèle de repli. Désactivable dans `config.yaml`.
-- Coût indicatif : quelques centimes par produit.
+| Donnée | CJ Dropshipping | AliExpress (API affiliés) |
+|---|---|---|
+| Prix d'achat | prix de la variante la moins chère (USD → EUR) | prix en EUR |
+| Livraison France | `freightCalculate` CN → FR : méthode la moins chère respectant le délai max | `product.shipping.get` : frais + délai min/max |
+| Stock | stock entrepôt | **non publié** (inconnu) |
+| Note | **non publiée** (CJ est l'entrepôt : note non exigée) | taux d'avis positifs ramené sur 5 (ex. 96 % → 4,8) |
+| Ventes | non publiées | ventes des 30 derniers jours |
+
+Les réponses sont **mises en cache** en base (24 h par défaut) ; CJ est limité à 1 requête/seconde. Un produit n'est re-cherché qu'après `matching.recheck_days` jours. Si une source est bloquée ou non configurée, les autres continuent, et un produit n'est marqué *introuvable* que si au moins une source a réellement répondu.
+
+### Import CSV fournisseur
+
+Glissez un CSV dans « Lancer une collecte » ou déposez-le dans `data/supplier_csv/`. Colonnes reconnues (noms FR ou EN) : `title`, `url`, `price`, `shipping`, `delivery` (ex. `7-12`) ou `delivery min` / `delivery max`, `stock`, `rating` (/5 ou %), `orders`, `image`, `supplier`, et `product_id` (id product-hunter, facultatif : sinon rattachement par similarité de titre).
+
+Les colonnes « AliExpress Price / Link » des exports Minea deviennent des offres **partielles** (port et délai inconnus) : à compléter dans la fiche avant qu'elles ne comptent.
+
+## Marge et prix conseillé (`config.yaml` → `economics`)
+
+```
+profit net = prix de vente − prix d'achat − livraison − 3 % (paiement) − 25 % (pub estimée)
+```
+
+- **Prix plancher** : prix qui garantit la marge nette visée (20 % par défaut), arrondi à x,90.
+- **Prix conseillé** : la médiane des prix concurrents si elle est au-dessus du plancher (le marché accepte ce prix), sinon le plancher (signalé : concurrents moins chers).
+- Parmi les offres conformes, l'outil retient automatiquement **la moins chère rendue en France** ; vous pouvez en imposer une autre dans la fiche.
+
+## Score /100 (`weights`)
+
+| Critère | Poids | Calcul |
+|---|---|---|
+| Marge nette | 30 | marge nette % : 5 % → 0, 30 % → 1 |
+| Demande | 25 | moyenne des signaux disponibles : Google Trends, nombre d'annonceurs (idéal 3-15), ancienneté des pubs (≥ 30 j), rang best-seller |
+| Faible saturation | 15 | nombre de concurrents (boutiques suivies + annonceurs) : 0 à partir de 5 |
+| Fiabilité fournisseur | 20 | délai (≤ 7 j = max), note, stock, ventes, qualité de la correspondance |
+| Effet wow | 10 | note 0-10 donnée par Claude |
+
+## Interface
+
+- **Produits** : collecte, cartes ou tableau (photo fournisseur, achat + port, prix conseillé, profit net, délai, score, bouton « Fournisseur »), filtres, génération IA du top, sélection et **Exporter vers Shopify**.
+- **Fiche produit** : économie unitaire (cascade), toutes les offres fournisseur avec liens directs, choix / saisie manuelle d'une offre, relance de la recherche, concurrents et pubs, score détaillé, Google Trends, fiche IA (aperçu HTML + code).
+- **Mes tests** : budget, CA, ROAS, statut (à tester / en test / validé / abandonné).
+- **Réglages** : économie et filtres, pondérations, boutiques concurrentes, sources, clés API, mots-clés exclus, YAML brut.
+
+## Export Shopify
+
+Le CSV suit le **modèle actuel** de Shopify (`Title`, `URL handle`, `Description`, `Vendor`, `Type`, `Tags`, `Status`, `Price`, `Cost per item`, `Product image URL`, `SEO title`…, 61 colonnes). Shopify accepte aussi les anciens noms (`Handle`, `Body (HTML)`, `Variant Price`, `Image Src`).
+
+- Prix = prix conseillé ; *Cost per item* = coût rendu (achat + port).
+- Image = photo du **fournisseur** (jamais celle d'un concurrent).
+- Produits importés en **brouillon** par défaut (`shopify_export.status`).
+- Sans fiche IA générée, la description est vide (signalé à l'export).
+
+Import : Shopify admin → Produits → Importer.
 
 ## Ligne de commande
 
-Chaque collecteur peut être testé seul :
-
 ```bash
 python -m collectors.shopify_stores
-python -m collectors.amazon_movers
 python -m collectors.google_trends "lampe lune"
 python -m collectors.ads_import examples/exemple_minea.csv
-python scoring.py                 # recalcule tous les scores
-python pipeline.py shopify ads    # collecte sans interface (sources au choix)
+python margins.py
+python scoring.py
+python pipeline.py shopify ads suppliers
 ```
 
 ## Structure
 
 ```
 product-hunter/
-  app.py                 # interface Streamlit (4 pages)
+  app.py                 # interface Streamlit
   pipeline.py            # orchestration d'une collecte
-  collectors/
-    http_client.py       # User-Agent, délais, retries, détection de blocage
-    text_utils.py        # nettoyage texte, mots-clés, similarité de titres
-    shopify_stores.py    # /products.json + best-selling
-    google_trends.py     # pytrends FR/Europe
-    amazon_movers.py     # Movers & Shakers (repli Meilleures ventes)
-    ads_import.py        # CSV Minea / PPSPY / Meta Ad Library
-  scoring.py             # filtres + score /100
-  analyzer.py            # analyse IA via l'API Claude (+ cache)
-  db.py                  # modèles SQLite (SQLAlchemy)
-  settings.py            # lecture/écriture config.yaml et .env
-  config.yaml            # seuils et pondérations
-  examples/              # CSV d'exemple
-  data/                  # base SQLite + dossier d'import CSV
+  collectors/            # demande : Shopify, Google Trends, import pubs
+  suppliers/
+    cj.py                # API CJ Dropshipping v2
+    aliexpress.py        # API AliExpress affiliés (signature HMAC-SHA256)
+    csv_import.py        # import CSV fournisseur
+    matching.py          # recherche + rattachement des offres
+  margins.py             # profit net et prix conseillé
+  scoring.py             # regroupement, choix d'offre, filtres, score
+  analyzer.py            # Claude : requêtes EN + fiches Shopify (cache)
+  shopify_export.py      # CSV d'import Shopify
+  db.py                  # SQLite (produits, offres, cache API, analyses, tests)
+  config.yaml            # seuils, pondérations, sources
 ```
 
-## Bonnes pratiques et limites
+## Limites
 
-- Le scraping doit rester raisonnable : respectez les délais configurés et les conditions d'utilisation des sites. Les endpoints publics Shopify et les pages Amazon peuvent changer ou être bloqués à tout moment.
-- Les prix Shopify sont convertis en euros avec des taux fixes approximatifs (`FX_TO_EUR` dans `shopify_stores.py`) ; une boutique peut afficher une devise différente selon le pays d'où part la requête.
-- Google Trends renvoie des valeurs **relatives** (0-100 par rapport au pic de la période) : comparez les pentes plutôt que les valeurs absolues.
-- Le score est une aide au tri, pas une garantie : validez toujours avec un petit budget de test.
+- Les intégrations CJ et AliExpress suivent la documentation officielle (vérifiée en octobre 2026) mais n'ont pas pu être testées avec de vraies clés lors du développement : au premier lancement, surveillez le rapport de collecte.
+- Le rapprochement fournisseur est textuel (titres) : vérifiez toujours visuellement l'offre retenue avant de tester.
+- La note AliExpress est le taux d'avis positifs du produit, pas une note de boutique.
+- Le coût pub (25 %) est une hypothèse de travail : ajustez-le avec vos ROAS réels (page Mes tests).

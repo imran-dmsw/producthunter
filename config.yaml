@@ -1,23 +1,35 @@
 # =====================================================================
 #  product-hunter — configuration
-#  Tous les seuils et pondérations sont modifiables ici ou depuis la
-#  page "Réglages" de l'interface Streamlit.
+#  Modifiable ici ou depuis la page "Réglages". Les clés d'API ne sont
+#  JAMAIS ici : elles vont dans le fichier .env.
 # =====================================================================
 
 # --------------------------------------------------------------------
-# Filtres éliminatoires : un produit qui échoue à l'un d'eux est marqué
-# "exclu" (il reste en base mais est masqué par défaut).
+# Économie unitaire : coûts pris en compte pour le profit net par commande
+# --------------------------------------------------------------------
+economics:
+  payment_fees_pct: 3.0        # frais Shopify Payments / paiement (% du prix de vente)
+  ad_cost_pct: 25.0            # coût publicitaire estimé par commande (% du prix de vente)
+  target_net_margin_pct: 20.0  # marge nette visée pour calculer le prix conseillé
+  price_ending: 0.90           # prix conseillé arrondi à x,90
+  usd_to_eur: 0.92             # conversion des prix fournisseurs en USD (CJ)
+
+# --------------------------------------------------------------------
+# Filtres éliminatoires
 # --------------------------------------------------------------------
 filters:
-  min_price_eur: 30          # prix de vente minimum
-  max_price_eur: 80          # prix de vente maximum
-  min_markup: 3.0            # prix de vente / prix d'achat (x3 minimum)
-  # Si le prix d'achat est inconnu, on l'estime à ce ratio du prix de vente
-  # (le filtre de marge n'est alors pas appliqué, seul le score l'utilise).
-  estimated_cost_ratio: 0.30
-  max_weight_grams: 1500     # au-delà : produit trop lourd (frais de port)
-  # Mots-clés (minuscules, FR + EN) recherchés dans le titre, le type,
-  # les tags et la description. Chaque liste = un motif d'exclusion.
+  min_price_eur: 30            # prix de vente conseillé minimum
+  max_price_eur: 80            # prix de vente conseillé maximum
+  min_net_profit_eur: 5.0      # profit net minimum par commande
+  max_delivery_days: 12        # délai de livraison France maximum (borne haute annoncée)
+  min_supplier_rating: 4.5     # note vendeur minimum (/5)
+  # Fournisseurs sans note vendeur publique (CJ est lui-même l'entrepôt) :
+  # la note n'est pas exigée pour eux.
+  rating_not_required_for: [cj, manuel]
+  require_stock: true          # stock > 0 exigé quand la source le fournit
+  max_weight_grams: 1500
+  # Mots-clés (FR + EN) recherchés dans le titre, la catégorie, les tags et
+  # la description (mots entiers). Chaque liste = un motif d'exclusion.
   excluded_keywords:
     batterie: [batterie, battery, rechargeable, li-ion, lithium, "usb-c rechargeable", powerbank, "power bank"]
     fragile: [verre, glass, céramique, ceramic, porcelaine, porcelain, cristal, crystal, miroir, mirror]
@@ -27,82 +39,98 @@ filters:
     marque_ip: [nike, adidas, apple, samsung, disney, marvel, pokemon, pokémon, "star wars", harry potter, lego, dyson, gucci, louis vuitton, chanel, rolex, nintendo, playstation, sony, barbie, "hello kitty", stanley]
 
 # --------------------------------------------------------------------
-# Score /100 : chaque critère produit une note 0..1 multipliée par son
-# poids. La somme des poids devrait faire 100.
+# Score /100 (somme ramenée à 100)
 # --------------------------------------------------------------------
 weights:
-  marge: 25
-  tendance: 20
-  annonceurs: 15
-  anciennete_pubs: 15
+  marge: 30
+  demande: 25
   saturation: 15
+  fiabilite_fournisseur: 20
   wow: 10
 
 scoring:
-  # Note attribuée à un critère quand la donnée est absente (0..1).
-  missing_data_value: 0.3
-  # Marge : ratio prix de vente / prix d'achat -> note 0 à markup_min, 1 à markup_max
-  markup_min: 2.0
-  markup_max: 5.0
-  # Annonceurs : plage "idéale" (produit validé mais pas encore saturé)
+  missing_data_value: 0.3      # note d'un critère dont la donnée manque (0..1)
+  margin_pct_min: 5            # marge nette % -> note 0
+  margin_pct_max: 30           # marge nette % -> note 1
   advertisers_ideal_min: 3
   advertisers_ideal_max: 15
-  advertisers_hard_max: 50   # au-delà : note 0 (marché saturé)
-  # Ancienneté des pubs : note 1 si la plus ancienne pub a >= ce nombre de jours
+  advertisers_hard_max: 50
   ad_age_target_days: 30
-  # Saturation : nombre de boutiques suivies vendant un produit similaire
-  # -> note 0 au-delà de saturation_max_stores
-  saturation_max_stores: 5
-  # Similarité de titres (0..1) pour considérer deux produits comme identiques
-  title_similarity: 0.72
+  saturation_max_stores: 5     # nombre de concurrents -> note 0
+  delivery_days_best: 7        # délai max <= 7 j -> note délai maximale
+  rating_best: 4.9
+  title_similarity: 0.72       # rapprochement des imports de pubs
+  cluster_similarity: 0.55     # regroupement des concurrents vendant le même produit
 
 # --------------------------------------------------------------------
-# Sources
+# Matching fournisseur
+# --------------------------------------------------------------------
+matching:
+  max_products_per_run: 25     # produits envoyés aux fournisseurs par collecte
+  candidates_per_supplier: 10  # résultats de recherche examinés
+  details_per_supplier: 3      # meilleurs candidats dont on récupère prix exact + livraison FR
+  min_match_score: 0.35        # similarité minimale titre détecté / titre fournisseur
+  recheck_days: 7              # re-chercher un fournisseur après N jours
+  translate_queries: true      # traduire le titre FR en requête EN via Claude (sinon mot-clé brut)
+
+cj:
+  enabled: true
+  cache_hours: 24
+  request_delay_s: 1.2         # CJ limite le nombre de requêtes par seconde
+
+aliexpress:
+  enabled: true
+  ship_to_country: FR
+  target_currency: EUR
+  target_language: FR
+  cache_hours: 24
+  csv_folder: data/supplier_csv   # import CSV (DSers, AutoDS, export manuel…)
+
+# --------------------------------------------------------------------
+# Détection de la demande
 # --------------------------------------------------------------------
 http:
   timeout_s: 20
   retries: 3
-  backoff_s: 2.0          # délai de base entre deux tentatives (exponentiel)
+  backoff_s: 2.0
   delay_between_requests_s: 1.5
 
 shopify:
   enabled: true
-  # Domaines de boutiques concurrentes (sans https://)
+  # Domaines des boutiques concurrentes (sans https://) — remplacez les exemples
   stores:
     - allbirds.com
     - gymshark.com
-  max_pages: 2            # 250 produits par page
+  max_pages: 2
   fetch_best_sellers: true
+  best_sellers_only: false     # true : ne garder que les produits classés best-sellers
 
 google_trends:
   enabled: true
-  geos: [FR]              # ex. [FR, BE, DE, ES, IT]
+  geos: [FR]
   timeframe: "today 3-m"
   max_keywords_per_run: 15
-  cache_hours: 24         # ne pas réinterroger un mot-clé plus souvent
-  delay_s: 8              # Google Trends limite très vite (429)
-
-amazon:
-  enabled: true
-  domain: www.amazon.fr
-  # Chemins de catégories Movers & Shakers (après /gp/movers-and-shakers/)
-  categories:
-    - kitchen
-    - garden
-    - sports
-    - automotive
-    - pet-supplies
+  cache_hours: 24
+  delay_s: 8
 
 ads_import:
-  # Dossier surveillé pour les CSV (en plus de l'upload dans l'interface)
   folder: data/ads_csv
 
 # --------------------------------------------------------------------
-# Analyse IA (API Claude)
+# Génération IA (API Claude)
 # --------------------------------------------------------------------
 analyzer:
   model: claude-opus-5-5
-  effort: medium          # low | medium | high
-  top_n: 10               # nombre de produits du top à analyser
-  cache_days: 30          # réutiliser une analyse en base pendant N jours
-  use_fallbacks: true     # bascule serveur si la requête est refusée
+  effort: medium
+  top_n: 10
+  cache_days: 30
+  use_fallbacks: true
+
+# --------------------------------------------------------------------
+# Export Shopify
+# --------------------------------------------------------------------
+shopify_export:
+  vendor: ""                   # vide = nom du fournisseur non exposé
+  status: draft                # draft | active
+  published: false
+  inventory_qty: 100

@@ -1,7 +1,10 @@
 """Orchestration d'une collecte complète.
 
-Ordre : Shopify -> Amazon -> import pubs -> filtres/score (pour prioriser)
--> Google Trends sur les meilleurs produits éligibles -> score final.
+1. Demande   : boutiques Shopify concurrentes, import CSV de pubs
+2. Regroupement des concurrents + score provisoire (pour prioriser)
+3. Google Trends sur les produits prioritaires
+4. Matching fournisseur (CJ Dropshipping, AliExpress) + import CSV fournisseur
+5. Choix de l'offre, marge réelle, filtres, score final
 Chaque source est isolée : si l'une échoue, les autres continuent.
 """
 from __future__ import annotations
@@ -10,13 +13,15 @@ import json
 import logging
 from typing import Callable
 
-from collectors import CollectResult, ads_import, amazon_movers, google_trends, shopify_stores
+from collectors import CollectResult, ads_import, google_trends, shopify_stores
 from db import Run, get_session, upsert_product
 from scoring import rescore_all
+from suppliers import csv_import, matching
 
 log = logging.getLogger("product_hunter.pipeline")
 
 Progress = Callable[[str, float], None]
+ALL_SOURCES = ("shopify", "ads", "trends", "suppliers")
 
 
 def _save_items(result: CollectResult) -> None:
@@ -31,8 +36,9 @@ def _save_items(result: CollectResult) -> None:
 
 def run_collection(
     cfg: dict,
-    sources: tuple[str, ...] = ("shopify", "amazon", "ads", "trends"),
+    sources: tuple[str, ...] = ALL_SOURCES,
     uploaded_csvs: list[tuple[str, bytes]] | None = None,
+    supplier_csvs: list[tuple[str, bytes]] | None = None,
     progress: Progress | None = None,
 ) -> dict:
     progress = progress or (lambda msg, pct: log.info("%s (%.0f%%)", msg, pct * 100))
@@ -50,12 +56,7 @@ def run_collection(
     if "shopify" in sources:
         def _shopify():
             r = shopify_stores.collect(cfg); _save_items(r); return r
-        run_source("shopify", "Boutiques Shopify…", 0.05, _shopify)
-
-    if "amazon" in sources:
-        def _amazon():
-            r = amazon_movers.collect(cfg); _save_items(r); return r
-        run_source("amazon", "Amazon Movers & Shakers…", 0.30, _amazon)
+        run_source("shopify", "Boutiques Shopify concurrentes…", 0.03, _shopify)
 
     if "ads" in sources:
         def _ads():
@@ -63,16 +64,30 @@ def run_collection(
             if r.items:
                 r.info.append(str(ads_import.import_into_db(r.items, cfg)))
             return r
-        run_source("ads", "Import des CSV publicitaires…", 0.45, _ads)
+        run_source("ads", "Import des CSV publicitaires…", 0.15, _ads)
 
-    progress("Filtres et score provisoire…", 0.55)
+    progress("Regroupement des concurrents…", 0.2)
     rescore_all(cfg)
 
     if "trends" in sources:
-        run_source("google_trends", "Google Trends (lent, limité par Google)…", 0.60,
+        run_source("google_trends", "Google Trends (lent, limité par Google)…", 0.25,
                    lambda: google_trends.collect(cfg))
 
-    progress("Score final…", 0.95)
+    if "suppliers" in sources:
+        rescore_all(cfg)
+        run_source("fournisseurs", "Recherche fournisseurs (CJ, AliExpress)…", 0.5,
+                   lambda: matching.match_products(cfg, progress=lambda m, p: progress(m, 0.5 + 0.4 * p)))
+
+    files = list(supplier_csvs or []) + csv_import.folder_sources(cfg)
+    if files:
+        def _sup_csv():
+            rep = csv_import.import_offers(files, cfg)
+            return CollectResult("fournisseurs_csv", items=[{}] * rep["rattachées"], errors=rep["erreurs"],
+                                 info=[f"{rep['offres']} offres, {rep['rattachées']} rattachées"]
+                                 + [f"non rattachée : {t}" for t in rep["non rattachées"][:10]])
+        run_source("fournisseurs_csv", "Import CSV fournisseurs…", 0.92, _sup_csv)
+
+    progress("Marges, filtres et score final…", 0.96)
     report["scoring"] = rescore_all(cfg)
 
     with get_session() as s:
@@ -81,11 +96,11 @@ def run_collection(
     return report
 
 
-if __name__ == "__main__":  # python pipeline.py [sources…]
+if __name__ == "__main__":  # python pipeline.py [shopify ads trends suppliers]
     import sys
 
     from settings import load_config
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    srcs = tuple(sys.argv[1:]) or ("shopify", "amazon", "ads", "trends")
+    srcs = tuple(sys.argv[1:]) or ALL_SOURCES
     print(json.dumps(run_collection(load_config(), sources=srcs), indent=2, ensure_ascii=False, default=str))
