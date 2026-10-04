@@ -1,0 +1,108 @@
+# =====================================================================
+#  product-hunter — configuration
+#  Tous les seuils et pondérations sont modifiables ici ou depuis la
+#  page "Réglages" de l'interface Streamlit.
+# =====================================================================
+
+# --------------------------------------------------------------------
+# Filtres éliminatoires : un produit qui échoue à l'un d'eux est marqué
+# "exclu" (il reste en base mais est masqué par défaut).
+# --------------------------------------------------------------------
+filters:
+  min_price_eur: 30          # prix de vente minimum
+  max_price_eur: 80          # prix de vente maximum
+  min_markup: 3.0            # prix de vente / prix d'achat (x3 minimum)
+  # Si le prix d'achat est inconnu, on l'estime à ce ratio du prix de vente
+  # (le filtre de marge n'est alors pas appliqué, seul le score l'utilise).
+  estimated_cost_ratio: 0.30
+  max_weight_grams: 1500     # au-delà : produit trop lourd (frais de port)
+  # Mots-clés (minuscules, FR + EN) recherchés dans le titre, le type,
+  # les tags et la description. Chaque liste = un motif d'exclusion.
+  excluded_keywords:
+    batterie: [batterie, battery, rechargeable, li-ion, lithium, "usb-c rechargeable", powerbank, "power bank"]
+    fragile: [verre, glass, céramique, ceramic, porcelaine, porcelain, cristal, crystal, miroir, mirror]
+    electronique_complexe: [smartphone, téléphone, tablette, tablet, ordinateur, laptop, drone, caméra, camera, écouteurs, earbuds, bluetooth, wifi, "smart watch", montre connectée, projecteur, projector]
+    ingere_cosmetique_sante: [complément, supplement, vitamine, vitamin, gélule, capsule, thé, tea, café, coffee, protéine, protein, crème, cream, sérum, serum, shampoing, shampoo, cosmétique, cosmetic, maquillage, makeup, parfum, perfume, huile essentielle, "essential oil", santé, health, médical, medical, orthopédique, posture corrector, correcteur de posture, masseur, massager, minceur, slimming, dentaire, teeth whitening, blanchiment]
+    reglemente: [jouet, toy, bébé, baby, enfant, kids, "ce certified", laser, arme, weapon, couteau, knife, tabac, vape, cbd, alimentaire, food]
+    marque_ip: [nike, adidas, apple, samsung, disney, marvel, pokemon, pokémon, "star wars", harry potter, lego, dyson, gucci, louis vuitton, chanel, rolex, nintendo, playstation, sony, barbie, "hello kitty", stanley]
+
+# --------------------------------------------------------------------
+# Score /100 : chaque critère produit une note 0..1 multipliée par son
+# poids. La somme des poids devrait faire 100.
+# --------------------------------------------------------------------
+weights:
+  marge: 25
+  tendance: 20
+  annonceurs: 15
+  anciennete_pubs: 15
+  saturation: 15
+  wow: 10
+
+scoring:
+  # Note attribuée à un critère quand la donnée est absente (0..1).
+  missing_data_value: 0.3
+  # Marge : ratio prix de vente / prix d'achat -> note 0 à markup_min, 1 à markup_max
+  markup_min: 2.0
+  markup_max: 5.0
+  # Annonceurs : plage "idéale" (produit validé mais pas encore saturé)
+  advertisers_ideal_min: 3
+  advertisers_ideal_max: 15
+  advertisers_hard_max: 50   # au-delà : note 0 (marché saturé)
+  # Ancienneté des pubs : note 1 si la plus ancienne pub a >= ce nombre de jours
+  ad_age_target_days: 30
+  # Saturation : nombre de boutiques suivies vendant un produit similaire
+  # -> note 0 au-delà de saturation_max_stores
+  saturation_max_stores: 5
+  # Similarité de titres (0..1) pour considérer deux produits comme identiques
+  title_similarity: 0.72
+
+# --------------------------------------------------------------------
+# Sources
+# --------------------------------------------------------------------
+http:
+  timeout_s: 20
+  retries: 3
+  backoff_s: 2.0          # délai de base entre deux tentatives (exponentiel)
+  delay_between_requests_s: 1.5
+
+shopify:
+  enabled: true
+  # Domaines de boutiques concurrentes (sans https://)
+  stores:
+    - allbirds.com
+    - gymshark.com
+  max_pages: 2            # 250 produits par page
+  fetch_best_sellers: true
+
+google_trends:
+  enabled: true
+  geos: [FR]              # ex. [FR, BE, DE, ES, IT]
+  timeframe: "today 3-m"
+  max_keywords_per_run: 15
+  cache_hours: 24         # ne pas réinterroger un mot-clé plus souvent
+  delay_s: 8              # Google Trends limite très vite (429)
+
+amazon:
+  enabled: true
+  domain: www.amazon.fr
+  # Chemins de catégories Movers & Shakers (après /gp/movers-and-shakers/)
+  categories:
+    - kitchen
+    - garden
+    - sports
+    - automotive
+    - pet-supplies
+
+ads_import:
+  # Dossier surveillé pour les CSV (en plus de l'upload dans l'interface)
+  folder: data/ads_csv
+
+# --------------------------------------------------------------------
+# Analyse IA (API Claude)
+# --------------------------------------------------------------------
+analyzer:
+  model: claude-opus-5-5
+  effort: medium          # low | medium | high
+  top_n: 10               # nombre de produits du top à analyser
+  cache_days: 30          # réutiliser une analyse en base pendant N jours
+  use_fallbacks: true     # bascule serveur si la requête est refusée

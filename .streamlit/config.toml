@@ -1,0 +1,26 @@
+# Thème "business" de product-hunter (lu quand Streamlit est lancé depuis ce dossier)
+[theme]
+base = "light"
+primaryColor = "#0E7C66"               # émeraude : actions, sélection
+backgroundColor = "#F6F7F9"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F172A"
+linkColor = "#0E7C66"
+borderColor = "#E2E8F0"
+showWidgetBorder = true
+baseRadius = "small"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFontWeights = [700, 600, 600, 600, 600, 600]
+chartCategoricalColors = ["#0E7C66", "#1E3A5F", "#C08A2E", "#64748B", "#3B82F6"]
+
+[theme.sidebar]
+backgroundColor = "#0F1B2D"
+secondaryBackgroundColor = "#17263D"
+textColor = "#E2E8F0"
+borderColor = "#24364F"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
